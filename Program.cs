@@ -1,7 +1,10 @@
 ﻿using System;
+using System.Drawing;
 using System.IO;
 using System.Linq;
+
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Dithering; 
 
 namespace OledImageConvert
 {
@@ -9,23 +12,23 @@ namespace OledImageConvert
     {
         static void Main(string[] args)
         {
-            int index = 0;
-            foreach (var arg in args)
-            {
-				Console.WriteLine("Arg {0}: {1}", index++, arg);
-            }
+            // int index = 0;
+            // foreach (var arg in args)
+            // {
+			// 	Console.WriteLine("Arg {0}: {1}", index++, arg);
+            // }
 
-            var inputFile = args.Last();
+            // var inputFile = args.Last();
 
-            if (!File.Exists(inputFile)) {
-                Console.WriteLine("Cannot load file {0}", inputFile);
+            // if (!File.Exists(inputFile)) {
+            //     Console.WriteLine("Cannot load file {0}", inputFile);
 
-                return;
-            }
+            //     return;
+            // }
 
-            ConvertImageToArray("Laughing_Man.png", "Laughing_Man.h");
+            ConvertImageToArray("tachikoma.png", "tachikoma.h");
 
-            ConvertArrayToImage("Laughing_Man.h", "Laughing_Man-Test.png");
+            ConvertArrayToImage("tachikoma.h", "tachikoma-Test.png");
         }
 
         static void ConvertImageToArray(string imagePath, string outputPath) 
@@ -39,9 +42,10 @@ namespace OledImageConvert
                 // Could probably do this better
                 // but for now we are simply just storing if there is a renderable pixel or not
                 var bitArray = new bool[image.Width, image.Height]; 
-                var cutOff = 0f;
+                var cutOff = 254f;
 
                 // Ensure the image is grayscale
+                image.Mutate(x => x.Grayscale().Dither(new FloydSteinbergDiffuser(), .8f));
 
                 // Loop through pixels
                 for (int x = 0; x < image.Width; x++)
@@ -50,14 +54,14 @@ namespace OledImageConvert
                    {
                        var pixel = image[x, y];
                        
-                       var value = pixel.Red;
-
-                        bitArray[x, y] = value >= cutOff;
+                       var value = pixel.R;
+                       
+                       bitArray[x, y] = value <= cutOff;
                    }
                 }
 
                 // Final array output
-                var finalArray = new uint[image.Width * (image.height / 8)];
+                var finalArray = new byte[image.Width * (image.Height / 8)];
                 var blockIndex = 0;
 
                 // if Vertical
@@ -66,12 +70,12 @@ namespace OledImageConvert
                     for (int x = 0; x < image.Width; x++) {
                         for (int y = 0; y < image.Height; y +=8) {
 
-                            uint block = 0;
+                            byte block = 0;
 
-                            for (int segment = 0; segment < 8; segment ++) {
+                            for (byte segment = 0; segment < 8; segment ++) {
 
                                 if (bitArray[x, y + segment]) {
-                                    block = (uint)1 << segment;
+                                    block |= (byte)(1 << segment);
                                 }
                             }
 
@@ -83,17 +87,34 @@ namespace OledImageConvert
                     
                     for (int y = 0; y < image.Height; y +=8) {
                         for (int x = 0; x < image.Width; x++) {
-                            uint block = 0;
+                            byte block = 0;
 
-                            for (int segment = 0; segment < 8; segment ++) {
+                            for (byte segment = 0; segment < 8; segment ++) {
 
                                 if (bitArray[x, y + segment]) {
-                                    block = (uint)1 << segment;
+                                    block |= (byte)(1 << segment);
                                 }
                             }
 
                             finalArray[blockIndex++] = block;
                         }
+                    }
+                }
+
+
+                using (var output = new StreamWriter(outputPath))
+                {
+                    bool first = true;
+                    foreach(var block in finalArray) {
+
+                        if (!first) {
+                            output.Write(",");
+                        }
+                        else {
+                            first = false;
+                        }
+
+                        output.Write("0x" + block.ToString("X2"));
                     }
                 }
             }
@@ -109,6 +130,40 @@ namespace OledImageConvert
             // Num Images packed
             // Format (Vertical|Horizontal) - What about LSB/MSB order?
             // Start Character (Font Only)
+
+            int imageWidth = 128;
+            int imageHeight = 64;
+
+            using (var input = new StreamReader(inputFile))
+            using (FileStream output = File.OpenWrite(outputPath))
+            using (Image<Rgba32> image = new Image<Rgba32>(imageWidth, imageHeight))
+            {
+                var blocks = input.ReadLine().Split(',');
+
+                for (int i = 0; i < blocks.Length; i++)
+                {
+                    var blockString = blocks[i].Substring(2, 2);
+                    var block = Convert.ToByte(blockString, 16);
+
+                    // This only works for vertical
+                    int blockHeight = imageHeight / 8;
+                    int x = i / blockHeight;
+                    int startY = (i - (x * blockHeight)) * 8; //??
+
+                    for (byte segment = 0; segment < 8; segment ++) {
+                        int y = startY + segment;
+                        if ((block & (1 << segment)) != 0) {
+                            image[x, y] = Rgba32.Black;
+                        }
+                        else {
+                            image[x, y] = Rgba32.White;
+                        }
+                    }
+                }
+
+                image.SaveAsPng(output);
+                Console.WriteLine("Image Saved");
+            }
         }
     }
 }
