@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using SixLabors.ImageSharp;
 
-namespace Image2CArrayConvert
+namespace OledImageConvert
 {
     class Program
     {
